@@ -27,7 +27,11 @@ interface CurrentVatLike {
 }
 
 contract IlkRegistryCurrentMassReAddTest is Test {
+    uint256 internal constant SNAPSHOT_BLOCK = 25_694_337;
     address internal constant REGISTRY = 0x5a464C28D19848f44199D003BeF5ecc87d090F87;
+    address internal constant RWA012_JOIN = 0x75646f68B8C5D8f415891F7204978eFb81Ec6410;
+    address internal constant RWA013_JOIN = 0x779D0fD012815D4239BAf75140E6B2971bEd5113;
+
     CurrentRegistryLike internal constant registry = CurrentRegistryLike(REGISTRY);
 
     function _targets() internal pure returns (bytes32[] memory t) {
@@ -108,8 +112,8 @@ contract IlkRegistryCurrentMassReAddTest is Test {
         return false;
     }
 
-    function testCurrentMainnetOneTransactionRestoresRemovedIlks() public {
-        vm.createSelectFork("mainnet");
+    function testCurrentMainnetOneTransactionRestoresExactly31RemovedIlks() public {
+        vm.createSelectFork("mainnet", SNAPSHOT_BLOCK);
 
         bytes32[] memory targets = _targets();
         address[] memory adapters = _adapters();
@@ -117,27 +121,20 @@ contract IlkRegistryCurrentMassReAddTest is Test {
 
         uint256 initialCount = registry.count();
         uint256 gasBefore = gasleft();
-        uint256 restored;
         uint256 nonzeroArtOrLine;
 
         console2.log("fork block", block.number);
         console2.log("initial registry count", initialCount);
+        assertEq(initialCount, 35, "unexpected pinned Registry baseline");
 
         for (uint256 i = 0; i < targets.length; i++) {
-            address existing = registry.join(targets[i]);
-            if (existing != address(0)) {
-                console2.log("already present; skipped:");
-                console2.logBytes32(targets[i]);
-                continue;
-            }
-
+            assertEq(registry.join(targets[i]), address(0), "target already present at pinned block");
             assertEq(CurrentJoinLike(adapters[i]).vat(), address(vat), "adapter points to a different Vat");
             assertEq(CurrentJoinLike(adapters[i]).ilk(), targets[i], "adapter reports a different ilk");
             assertEq(CurrentJoinLike(adapters[i]).live(), 1, "adapter is not live");
             assertEq(vat.wards(adapters[i]), 1, "adapter is no longer a Vat ward");
 
             registry.add(adapters[i]);
-            restored++;
 
             (uint256 Art,,, uint256 line,) = vat.ilks(targets[i]);
             if (Art != 0 || line != 0) nonzeroArtOrLine++;
@@ -149,13 +146,37 @@ contract IlkRegistryCurrentMassReAddTest is Test {
         }
 
         uint256 gasUsed = gasBefore - gasleft();
-        console2.log("restored in one transaction", restored);
+        console2.log("restored in one transaction", targets.length);
         console2.log("post-attack registry count", registry.count());
         console2.log("gas used by test body", gasUsed);
         console2.log("restored with nonzero Art or line", nonzeroArtOrLine);
 
-        assertGt(restored, 0, "no removed ilk remains currently restorable");
-        assertEq(registry.count(), initialCount + restored, "registry count did not increase once per restored ilk");
+        assertEq(targets.length, 31, "unexpected target set length");
+        assertEq(registry.count(), 66, "all 31 legacy ilks were not restored");
+        assertEq(nonzeroArtOrLine, 0, "restoration unexpectedly touched a live debt position or ceiling");
         assertLt(gasUsed, block.gaslimit, "mass restoration cannot fit in one Ethereum block");
+    }
+
+    function testRwaAdaptersWithResidualArtAreNotPermissionlesslyAddable() public {
+        vm.createSelectFork("mainnet", SNAPSHOT_BLOCK);
+        CurrentVatLike vat = CurrentVatLike(registry.vat());
+
+        (uint256 rwa012Art,,, uint256 rwa012Line,) = vat.ilks("RWA012-A");
+        (uint256 rwa013Art,,, uint256 rwa013Line,) = vat.ilks("RWA013-A");
+        console2.log("RWA012 Art", rwa012Art);
+        console2.log("RWA012 line", rwa012Line);
+        console2.log("RWA013 Art", rwa013Art);
+        console2.log("RWA013 line", rwa013Line);
+
+        assertGt(rwa012Art, 0, "RWA012 has no residual Art at pinned block");
+        assertGt(rwa013Art, 0, "RWA013 has no residual Art at pinned block");
+        assertEq(registry.join("RWA012-A"), address(0), "RWA012 unexpectedly registered");
+        assertEq(registry.join("RWA013-A"), address(0), "RWA013 unexpectedly registered");
+
+        vm.expectRevert(bytes("IlkRegistry/invalid-auction-contract"));
+        registry.add(RWA012_JOIN);
+
+        vm.expectRevert(bytes("IlkRegistry/invalid-auction-contract"));
+        registry.add(RWA013_JOIN);
     }
 }
