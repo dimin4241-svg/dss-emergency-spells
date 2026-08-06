@@ -29,8 +29,8 @@ interface CurrentVatLike {
 contract IlkRegistryCurrentMassReAddTest is Test {
     uint256 internal constant SNAPSHOT_BLOCK = 25_694_337;
     address internal constant REGISTRY = 0x5a464C28D19848f44199D003BeF5ecc87d090F87;
-    address internal constant RWA012_JOIN = 0x75646f68B8C5D8f415891F7204978eFb81Ec6410;
-    address internal constant RWA013_JOIN = 0x779D0fD012815D4239BAf75140E6B2971bEd5113;
+    address internal constant RWA012_JOIN = 0x75646F68B8c5d8F415891F7204978Efb81ec6410;
+    address internal constant RWA013_JOIN = 0x779D0fD012815D4239BAf75140e6B2971BEd5113;
 
     CurrentRegistryLike internal constant registry = CurrentRegistryLike(REGISTRY);
 
