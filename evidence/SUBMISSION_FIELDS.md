@@ -1,44 +1,65 @@
-# Recommended Immunefi submission fields
+# Recommended Immunefi submission fields — revised after red-team
 
 ## Asset
 
-Primary selection: **MCD_VAT**
+Primary target:
 
-Explain in the first paragraph that the root cause is in production IlkRegistry, while the strongest atomic PoCs propagate the reconstructed retired paths through MCD_SPOT/OSM into the explicitly listed MCD_VAT asset.
+```text
+IlkRegistry
+0x5a464C28D19848f44199D003BeF5ecc87d090F87
+```
+
+Select IlkRegistry or the closest available “other deployed Sky/Core System contract” option if the submission interface exposes one.
+
+**Do not select MCD_VAT merely to create an in-scope sink.** A differential control proves the tested `Vat.spot` result is reproducible through direct public legacy-oracle and Spotter calls without Registry re-addition.
+
+If the interface has no appropriate asset, explicitly state the exact production contract and rely on the program statement that a Critical impact on any deployed Sky smart contract may be submitted for consideration. Treat this as a material scope risk.
 
 ## Impact
 
-**Critical — Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results**
+```text
+Critical — Manipulation of governance voting result deviating from voted outcome and resulting in a direct change from intended effect of original results
+```
+
+There is no reliable fallback impact in the currently visible Sky smart-contract impact list.
 
 ## Title
 
-**Permissionless IlkRegistry add atomically defeats coordinated governance oracle retirement and reactivates retired paths in MCD_VAT**
-
-## PoC attachment
-
-`sky-ilk-registry-governance-retirement-validation-v3.zip`
-
-SHA-256:
-
 ```text
-879f004191d2cc610296462b9fa9a75b02f665dc1ed110894aa49280f5fea842
+Permissionless IlkRegistry add lets any address repeatedly veto governance removal of offboarded ilks
 ```
 
-## First five facts to place above the fold
+## First facts above the fold
 
-1. Real approved spell and exact pre-cast block are used.
-2. Clean result is `72 -> 30`; attacker-controlled one-call result is `72 -> 30 -> 61`, with `spell.done() == true`.
-3. Eight selected legacy oracle keys remain absent from Chainlog.
-4. In the same unprivileged call, seven retired paths are recached and two MCD_VAT spot values change.
-5. The same current-state primitive independently restores 31 records, recaches 26 paths, and changes 15 MCD_VAT spot values without invoking governance.
+1. The official proposal said named offboarded ilks would be removed from IlkRegistry to finalize offboarding.
+2. Clean real-spell result is `72 -> 30`.
+3. One public transaction executes the real spell and ends at `61`, restoring 31 removed records.
+4. At current pinned block `25,694,337`, production `add()` still accepts all 31 adapters.
+5. A repeated-veto test proves three legitimate governance `removeAuth` cycles are followed by four public re-additions; the arbitrary caller controls the final Registry and Omega target-set state for `758,204` total add gas.
+6. Public callers cannot remove the restored entries because the Joins remain live.
+
+## Mandatory counterevidence disclosure
+
+The internal package should retain, and the report should accurately account for:
+
+- public Registry mutability is documented;
+- official tests allow `removeAuth -> add` for refresh;
+- Sky rules assume governance/permissionless grouping at spell or `dss-exec-lib` level;
+- Chainlog inconsistency is an explicit non-issue;
+- direct public oracle + Spotter calls reproduce the tested `MCD_VAT.spot` result;
+- all 31 addable ilks have zero Art and zero line;
+- no active auctions, residual AutoLine, fund freeze, theft, insolvency, or block-gas DoS exists.
 
 ## Do not select or claim
 
+- MCD_VAT as a causal asset;
+- Chainlog bypass as an impact;
 - theft;
 - insolvency;
-- permanent freezing;
+- permanent or temporary freezing;
 - debt reopening;
 - active-auction loss;
-- block-gas denial of service;
-- malicious governance proposal;
+- residual AutoLine reopening;
+- emergency DoS;
+- malicious governance proposal; or
 - privileged attacker access.
