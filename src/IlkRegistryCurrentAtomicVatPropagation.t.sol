@@ -6,6 +6,7 @@ import {
     IlkRegistryOmegaPokerImpactTest,
     OmegaPokerLike
 } from "./IlkRegistryOmegaPokerImpact.t.sol";
+import {CurrentVatLike} from "./IlkRegistryCurrentMassReAdd.t.sol";
 
 contract CurrentAtomicRegistryPropagation {
     function execute(address registry, address[] calldata adapters, address omega)
