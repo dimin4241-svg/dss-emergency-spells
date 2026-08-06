@@ -1,252 +1,111 @@
-# Triage objection matrix
+# Revised triage objection matrix
 
-This matrix separates confirmed behavior from severity interpretation. It is intentionally skeptical: where an objection is partly correct, that part is acknowledged before the narrower security claim is stated.
+This matrix reflects the adversarial controls. It does not defend claims that the controls disproved.
 
 ## 1. “IlkRegistry is intentionally publicly modifiable”
 
-### Accurate part
+**Accurate.** The official README says so, and official tests support `removeAuth -> add` for technical refresh.
 
-Yes. Permissionless addition is an explicit design choice, and official tests use `removeAuth -> add` for technical refreshes.
+**Surviving response:** the finding is narrower. Governance used the same removal operation for a stated terminal purpose—removing named offboarded ilks to finalize offboarding. The contract has no state that distinguishes that terminal removal from temporary refresh.
 
-### Response
+## 2. “The vote and spell executed correctly; the attacker only made a later allowed call”
 
-The finding does not claim all public additions are invalid. It proves that the contract represents temporary refresh and terminal governance offboarding with the same indistinguishable missing-record state.
+**Strong objection.** `DssExec.done()` is only a cast flag, not a postcondition checker. Atomic transaction composition does not change the authorization of each call.
 
-The official proposal used removal to finalize offboarding. One unprivileged call then executes the real approved spell and returns with 31 of the records restored.
+**Surviving response:** the attacker may call the real executable spell and restore 31 targets before the same external transaction returns. More importantly, the current repeated-veto PoC proves the issue independently of the old spell: after each legitimate `removeAuth`, a public caller restores the target and chooses the final Registry/Omega membership state.
 
-## 2. “Official tests explicitly allow removeAuth followed by add”
+## 3. “Sky assumes governance and permissionless actions are grouped at spell level”
 
-That proves the temporary refresh use case. It does not prove that a final offboarding action may be reversed by any address.
+**Strongest scope objection.** Current rules expressly say this grouping is assumed to be implemented in the spell or `dss-exec-lib`.
 
-A lifecycle tombstone preserves temporary refresh while making terminal removal representable.
+**Response:** the deployed Registry still lacks a terminal state, and the repeated-veto behavior is current. However, triage may classify this as incomplete spell composition, especially because a spell can clear residual Spotter/Dog addability conditions. This objection may be dispositive.
 
-## 3. “This was only a badly composed historical spell”
+## 4. “Chainlog inconsistency is explicitly a non-issue”
 
-The historical spell supplies a real approved baseline, but the vulnerable primitive remains in the current production deployment.
+**Correct.** Current rules say missing/extra/wrong/inconsistent Chainlog values are assumed non-issues.
 
-At block `25,694,337`, one public call—without a historical spell—restores 31 ilks, recaches 26 retired paths in deployed OmegaPoker, and changes 15 `MCD_VAT.spot` values.
+**Action:** do not use Chainlog retirement as the impact or severity driver. Chainlog may appear only as historical context.
 
-## 4. “The report is a feature request for a tombstone”
+## 5. “MCD_VAT.spot can be changed without Registry”
 
-The requested property is not newly invented. Governance explicitly described the operation as finalizing offboarding and coordinated it with removal of the same legacy oracle paths from Chainlog.
-
-The tombstone is one remediation. The vulnerability is the demonstrated reversal and cross-control bypass.
-
-## 5. “The governance proposal only performed housekeeping”
-
-“Housekeeping” describes the authorization category, not a license for any user to reverse the action. The proposal explicitly stated that the ilks would be removed to finalize offboarding and that legacy oracles would be removed from Chainlog.
-
-The PoC shows both actions complete, yet a public helper reconstructs the removed Registry paths and makes deployed consumers use them again.
-
-## 6. “A malicious governance spell is required”
-
-No. The strongest historical PoC invokes the real approved spell unchanged. The attacker adds no malicious code to the governance proposal.
-
-After the delay, `cast()` is public. The remaining calls—`IlkRegistry.add`, `OmegaPoker.refresh`, and `OmegaPoker.poke`—are also public.
-
-## 7. “A privileged address is required”
-
-No attacker privilege is used in either primary PoC.
-
-The historical one-call proof uses only public functions. The current one-call proof does not invoke governance at all.
-
-Privileged state modeling is used only in the emergency-spell consequence tests to represent the legitimate defender precondition that a deployed emergency spell has been selected as Chief hat. The attacker-controlled step begins after clean emergency completion and consists only of permissionless `add()` calls.
-
-## 8. “Chainlog is still clean, so oracle retirement succeeded”
-
-The Chainlog keys remain absent in the attacked state; this is asserted.
-
-That is precisely the cross-control failure: `IlkRegistry.add()` obtains `pip` from residual `MCD_SPOT`, not Chainlog. OmegaPoker then trusts Registry rather than Chainlog and recaches the retired paths.
-
-The attacker bypasses the retirement effect without restoring or modifying Chainlog.
-
-## 9. “Removing a key from Chainlog was never intended to delete Spotter state”
-
-The report does not claim Chainlog removal should delete Spotter storage. It shows that governance relied on the combination of Chainlog retirement and Registry removal to remove the path from live discovery/automation.
-
-Because Registry removal is permissionlessly reversible, residual Spotter state becomes an alternate reconstruction source that defeats that coordinated outcome.
-
-## 10. “Spotter.poke is public, so changing Vat.spot is not unauthorized”
-
-Correct: the report does not claim an access-control bypass in `Spotter.poke`.
-
-The `MCD_VAT.spot` deltas prove that the reconstructed Registry state is consumed by deployed protocol automation and is not merely a UI/display change. The selected severity remains governance-result deviation, not unauthorized Spotter access.
-
-## 11. “OmegaPoker is only a backup contract”
-
-That limits the operational prevalence but does not falsify the result. OmegaPoker is deployed on mainnet, reads the production Registry, and its public functions deterministically propagate restored records into OSM/Spotter calls.
-
-The report uses OmegaPoker as a real downstream reproducer, not as evidence that it is always the primary production keeper.
-
-## 12. “The affected ilks have zero debt ceilings”
-
-Yes. All 31 positively restored ilks have `line == 0`, and this is disclosed.
-
-The report does not claim borrowing, liquidation, insolvency, or fund loss. The selected impact is the direct deviation from a voted terminal cleanup and reactivation of retired configuration paths.
-
-## 13. “Changing Vat.spot is harmless when line is zero”
-
-The report does not claim immediate financial harm from those deltas. The spot changes establish real on-chain propagation into an explicitly scoped core contract.
-
-The governance deviation is independently proven by the clean `72 -> 30` result versus attacker-controlled `72 -> 30 -> 61` result with `spell.done() == true`.
-
-## 14. “The restored records can simply be removed again”
-
-Not by an unprivileged caller. All 31 Join adapters remain live, while public `remove()` requires a caged Join.
-
-A test attempts all 31 removals; all are blocked. A new privileged governance action is required.
-
-## 15. “Governance can cage the Join”
-
-Caging does not create a terminal block because `add()` does not check `Join.live()`.
-
-A fork test proves:
+**Confirmed.** A focused differential control proves:
 
 ```text
-cage -> add -> remove -> add
+LINK-A baseline                         72000000000000000000000000
+direct legacy oracle + Spotter result  145650900000000000000000000
+Registry + Omega result                145650900000000000000000000
+final values equal                     true
 ```
 
-## 16. “Governance can deny the Join in Vat”
+**Action:** do not select `MCD_VAT` as the primary asset and do not claim Vat modification is caused uniquely by the Registry issue.
 
-`Vat.deny(join)` blocks Registry addition, but the same authorization is required by `GemJoin.exit()` through `Vat.slip`.
+## 6. “Economic offboarding remains complete”
 
-The fork test proves `exit()` reverts after denial. The AAVE Join held approximately `77.033778 AAVE` at the pinned block, so blanket denial is not a universally safe zero-balance cleanup.
+**Confirmed for the 31 addable ilks:**
 
-## 17. “There is no theft or debt reopening”
+- `Art == 0`;
+- `line == 0`;
+- no AutoLine configuration;
+- no LineMom enablement;
+- no active legacy Clipper auctions;
+- no Clipper Vat collateral balance.
 
-Agreed. The report does not select theft, insolvency, permanent freezing, or debt reopening.
+**Response:** the surviving claim is governance postcondition veto over canonical Registry/list-consumer membership, not economic reopening.
 
-Its selected Critical category is the program's governance-result deviation impact.
+## 7. “The residual-Art RWA records make this severe”
 
-## 18. “The residual-Art RWA records make this more severe”
+**False.** `RWA012-A` and `RWA013-A` are rejected by production `add()` with `IlkRegistry/invalid-auction-contract`.
 
-They do not. `RWA012-A` and `RWA013-A` have residual `Art == 1`, but actual production `add()` rejects both with `IlkRegistry/invalid-auction-contract`.
+**Action:** retain them only as negative controls.
 
-They are negative controls and are excluded from the impact claim.
+## 8. “The restored entries can simply be removed again”
 
-## 19. “DC-IAM could reopen the zero debt ceilings”
+**Not by a public caller.** All 31 Joins remain live; public `remove()` is blocked.
 
-It cannot in the tested current state. All 31 removed ilks have zero residual AutoLine configuration and are disabled in LineMom.
+**Stronger proof:** the repeated-veto test alternates three legitimate governance `removeAuth` calls with four public re-additions. The attacker wins the final state for only `758,204` total add gas.
 
-Automatic debt-ceiling reopening is not claimed.
+## 9. “Governance can cage the Join”
 
-## 20. “Legacy Clipper auctions could expose funds”
+Caging does not create a terminal state because `add()` does not check `Join.live()`; `add -> remove -> add` remains possible.
 
-Not at the pinned block. The 31 restored Clipper entries have zero active auctions and zero internal `Vat.gem` balance at the Clipper addresses.
+## 10. “Governance can deny the Join in Vat”
 
-Auction-fund impact is not claimed.
+Deny blocks re-add, but it also causes `GemJoin.exit()` to revert through `Vat.slip`. At least the AAVE Join still holds collateral.
 
-## 21. “The emergency-spell result requires governance privilege”
+**Limit:** governance can instead clear residual Spotter/Dog conditions or deploy a new Registry. The report must not claim remediation is impossible.
 
-The attacker does not obtain or impersonate governance privilege.
+## 11. “Emergency-spell `done()` changes are expected for mutable target sets”
 
-The test first establishes a legitimate defender state: the deployed emergency spell is selected as Chief hat and reaches `done == true`. Only then does an unprivileged caller re-add legacy records. Those additions alone create 25 new OSM obligations or 30 new Clipper obligations and flip `done()` back to false.
+This is plausible. The tested entries are retired, but the contracts intentionally read the current Registry dynamically.
 
-This is a consequence of the root bug under a legitimate emergency deployment condition, not the primary exploit prerequisite.
+**Action:** use emergency results only to prove operational consumption of Registry membership. Do not present them as an independent Critical, fund freeze, or permanent DoS.
 
-## 22. “Emergency done() becoming false is expected when a new ilk is onboarded”
+## 12. “Generic griefing/gas is not a listed Sky impact”
 
-For a genuinely new governance-approved collateral, yes. The tested entries are not new onboardings. They are records governance removed to finalize offboarding, and the corresponding legacy oracle keys remain removed from Chainlog.
+Correct based on the visible current impact table. The finite emergency re-execution burden does not independently map to an accepted impact.
 
-The state machine cannot distinguish these retired paths from legitimate new additions, which is the root lifecycle failure.
+## 13. “IlkRegistry/OmegaPoker may not be explicitly listed assets”
 
-## 23. “The emergency effect is only one extra transaction”
+This remains a risk. The program says a Critical impact on any deployed Sky smart contract may be submitted for consideration, but without acceptance of the Critical governance impact there is no reliable fallback severity.
 
-Mass restoration causes one additional response, but staged restoration is stronger.
+## 14. “This is a feature request for a tombstone”
 
-By adding adapters one at a time after each defender response, the attacker forces:
+A tombstone is only one fix. The technical defect is the inability of the existing authorized removal operation to establish a terminal state.
 
-```text
-25 repeated MultiOsmStop executions
-30 repeated MultiClipBreaker executions
-```
+Nevertheless, because public addability is documented and spell composition is assumed, triage may still classify the requested terminal state as a feature request.
 
-The measured total repeated response gas is `12,279,717` and `26,663,517`, respectively.
+## 15. “This is not manipulation of a governance voting result”
 
-This is disclosed as incident-response grief, not block-gas DoS or theft of gas.
+This is the decisive interpretation question.
 
-## 24. “This is only gas grief”
+**For acceptance:** the proposal named exact records and said their removal would finalize offboarding. An arbitrary address can atomically reverse 31 removals and can repeatedly veto later `removeAuth` actions, choosing a final canonical target-set state different from the approved result.
 
-No. Gas grief is secondary and bounded.
-
-The primary evidence is:
-
-- real approved governance result `72 -> 30`;
-- attacker-controlled final result `72 -> 30 -> 61`;
-- Chainlog retirement remains in place;
-- 7 selected retired paths are recached in the same call;
-- 2 selected `MCD_VAT.spot` values change in that same call;
-- the current deployment independently supports `35 -> 66`, 26 recached paths, and 15 Vat deltas.
-
-## 25. “IlkRegistry may not be a separately listed asset”
-
-This is no longer the only scope anchor.
-
-The root cause is in IlkRegistry, but the strongest PoCs reach explicitly listed `MCD_SPOT`, OSM paths, and `MCD_VAT`. The submission should select the closest listed core asset—preferably `MCD_VAT`—and explain the cross-contract causal chain.
-
-The program's resources also direct researchers to Sky ecosystem repositories and current Chainlog deployments.
-
-## 26. “The old vote cannot be manipulated after execution”
-
-The historical PoC demonstrates that the same transaction executing the approved result can return with that result already reversed. It is not a later unrelated state change:
-
-```text
-cast approved spell
--> re-add removed records
--> recache retired oracle paths
--> update Vat metadata
--> return to caller
-```
-
-`spell.done()` is true throughout the final attacked state.
-
-The current-state PoC separately establishes that the voted terminal state remains unenforced today.
-
-## 27. “Current exploitation requires the old spell”
-
-No. At block `25,694,337`, one public call with no governance action performs:
-
-```text
-Registry 35 -> 66
-Omega retired cache +26
-MCD_VAT.spot changes +15
-```
-
-## 28. “Public RPC instability makes the PoC unreliable”
-
-All proofs use pinned blocks and deterministic assertions. The CI workflows use sequential RPC failover and preserve successful machine logs.
-
-Standard `forge build` succeeds without `--via-ir` or special compiler settings.
-
-## 29. “Mainnet testing violated program rules”
-
-All state-changing tests ran on local Ethereum forks. No state-changing public-network transaction was sent.
-
-## 30. “The package contains contradictory exploratory theories”
-
-The final package must exclude:
-
-- the falsified historical `remove -> removeAuth` race;
-- the flawed shell addability scan;
-- claims of residual debt restoration;
-- claims of active legacy auctions;
-- claims of residual AutoLine reopening; and
-- claims of block-gas DoS.
-
-The negative evidence is retained only in the validation summary and counterevidence logs.
+**For rejection:** the vote winner and spell bytecode are unchanged; the attacker only uses a documented permissionless function after execution. The program may reserve the governance category for vote-result or privileged execution manipulation.
 
 ## Recommended submission framing
 
-Do not ask triage to accept the broad proposition that public Registry mutation is always forbidden.
+Use only this question:
 
-Ask the narrower evidence-backed question:
+> Can an arbitrary address repeatedly veto the exact IlkRegistry absence postcondition approved by governance, including by executing the real spell and restoring 31 removed records before the transaction returns, while the same public veto remains live in the current deployment?
 
-> Can one unprivileged external call execute the real approved oracle/offboarding spell, leave the selected legacy oracle keys retired in Chainlog, permissionlessly reconstruct 31 removed Registry entries through residual Spotter state, make a deployed Registry consumer recache retired paths, and change MCD_VAT metadata before returning while spell.done() is true?
-
-The mainnet-fork PoC answers yes.
-
-Then add the independent current proof:
-
-> Can the same public primitive, without any historical spell or privilege, currently restore 31 retired records, recache 26 paths, and change 15 MCD_VAT.spot values in one call?
-
-The current pinned fork also answers yes.
+Do not frame the submission around Chainlog, MCD_VAT, oracle access, debt reopening, emergency DoS, or financial loss.
