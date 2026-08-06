@@ -86,17 +86,14 @@ contract IlkRegistryAtomicGovernanceReversalTest is Test {
         vm.createSelectFork("mainnet", PRE_CAST_BLOCK);
         bytes32[] memory targets = _targets();
         address[] memory adapters = new address[](targets.length);
-        uint256 standardJoinTargets;
+        uint256 joinBackedTargets;
         for (uint256 i = 0; i < targets.length; i++) {
-            // Custom/RWA records such as LSE-MKR-A may intentionally have join == 0.
-            // Standard collateral records expose their legacy Join and are the subset
-            // that permissionless add(address) can reconstruct after the spell.
             adapters[i] = registry.join(targets[i]);
-            if (adapters[i] != address(0)) standardJoinTargets++;
+            if (adapters[i] != address(0)) joinBackedTargets++;
         }
 
         assertEq(registry.count(), 72, "unexpected pre-cast count");
-        assertEq(standardJoinTargets, 31, "unexpected number of standard Join targets");
+        assertEq(joinBackedTargets, 41, "unexpected number of Join-backed cleanup targets");
         assertFalse(spell.done(), "spell already cast at the selected block");
 
         AtomicCleanupReversal attacker = new AtomicCleanupReversal();
@@ -105,7 +102,7 @@ contract IlkRegistryAtomicGovernanceReversalTest is Test {
         uint256 gasUsed = beforeGas - gasleft();
 
         console2.log("spell done", spell.done());
-        console2.log("standard Join cleanup targets", standardJoinTargets);
+        console2.log("Join-backed cleanup targets", joinBackedTargets);
         console2.log("restored atomically", restored);
         console2.log("final registry count", registry.count());
         console2.log("atomic call gas used", gasUsed);
