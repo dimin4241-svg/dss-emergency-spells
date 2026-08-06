@@ -9,6 +9,16 @@ interface RegistryMassLike {
     function list() external view returns (bytes32[] memory);
     function join(bytes32) external view returns (address);
     function add(address) external;
+    function info(bytes32) external view returns (
+        string memory name,
+        string memory symbol,
+        uint256 class,
+        uint256 dec,
+        address gem,
+        address pip,
+        address joinAdapter,
+        address xlip
+    );
 }
 
 interface JoinMassLike {
@@ -85,13 +95,29 @@ contract IlkRegistryMassReAddTest is Test {
         return false;
     }
 
+    function _semanticInfoHash(bytes32 ilk) internal view returns (bytes32) {
+        (
+            string memory name,
+            string memory symbol,
+            uint256 class,
+            uint256 dec,
+            address gem,
+            address pip,
+            address joinAdapter,
+            address xlip
+        ) = registry.info(ilk);
+        return keccak256(abi.encode(name, symbol, class, dec, gem, pip, joinAdapter, xlip));
+    }
+
     function testAttackerMassReAddsGovernanceRemovedIlks() public {
         vm.createSelectFork("mainnet", PRE_CAST_BLOCK);
 
         bytes32[] memory targets = _targets();
         address[] memory oldJoins = new address[](targets.length);
+        bytes32[] memory oldInfoHashes = new bytes32[](targets.length);
         for (uint256 i = 0; i < targets.length; i++) {
             oldJoins[i] = registry.join(targets[i]);
+            if (oldJoins[i] != address(0)) oldInfoHashes[i] = _semanticInfoHash(targets[i]);
         }
 
         uint256 initialCount = registry.count();
@@ -104,6 +130,7 @@ contract IlkRegistryMassReAddTest is Test {
 
         uint256 readded;
         uint256 liveReadded;
+        uint256 exactMetadataRestores;
         for (uint256 i = 0; i < targets.length; i++) {
             address adapter = oldJoins[i];
             if (adapter == address(0)) continue;
@@ -121,15 +148,21 @@ contract IlkRegistryMassReAddTest is Test {
 
             assertEq(registry.join(targets[i]), adapter, "registry did not restore the old adapter");
             assertTrue(_contains(targets[i]), "re-added target is not enumerable");
+
+            bytes32 restoredHash = _semanticInfoHash(targets[i]);
+            if (restoredHash == oldInfoHashes[i]) exactMetadataRestores++;
+            assertEq(restoredHash, oldInfoHashes[i], "semantic Registry metadata differs from pre-cleanup state");
         }
 
         console2.log("governance removals reversed", readded);
         console2.log("re-added adapters still live", liveReadded);
+        console2.log("exact semantic metadata restores", exactMetadataRestores);
         console2.log("cleaned count", cleanedCount);
         console2.log("post-attack count", registry.count());
 
         assertGt(readded, 0, "attacker could not reverse any governance removal");
         assertEq(registry.count(), cleanedCount + readded, "every successful add must restore one voted-out entry");
         assertEq(liveReadded, readded, "unexpectedly re-added a caged adapter");
+        assertEq(exactMetadataRestores, readded, "not every successful re-add restored full semantic metadata");
     }
 }
