@@ -65,7 +65,7 @@ contract IlkRegistryDirectSpotterControlTest is IlkRegistryOmegaPokerImpactTest 
         console2.log("direct public Spotter changes", directChanges);
         console2.log("Registry plus Omega changes", registryChanges);
         console2.log("different final values", differingFinalValues);
-        console2.log("Registry count on direct fork", 35);
+        console2.log("Registry count on direct fork", uint256(35));
         console2.log("Registry count on attacked fork", registry.count());
 
         assertEq(directChanges, 15, "unexpected direct Spotter delta count");
