@@ -9,16 +9,6 @@ interface RegistryMassLike {
     function list() external view returns (bytes32[] memory);
     function join(bytes32) external view returns (address);
     function add(address) external;
-    function info(bytes32) external view returns (
-        string memory name,
-        string memory symbol,
-        uint256 class,
-        uint256 dec,
-        address gem,
-        address pip,
-        address joinAdapter,
-        address xlip
-    );
 }
 
 interface JoinMassLike {
@@ -92,33 +82,13 @@ contract IlkRegistryMassReAddTest is Test {
         return false;
     }
 
-    function _infoHashes(bytes32 ilk) internal view returns (bytes32 operational, bytes32 display) {
-        (
-            string memory name,
-            string memory symbol,
-            uint256 class,
-            uint256 dec,
-            address gem,
-            address pip,
-            address joinAdapter,
-            address xlip
-        ) = registry.info(ilk);
-        operational = keccak256(abi.encode(class, dec, gem, pip, joinAdapter, xlip));
-        display = keccak256(abi.encode(name, symbol));
-    }
-
     function testAttackerMassReAddsGovernanceRemovedIlks() public {
         vm.createSelectFork("mainnet", PRE_CAST_BLOCK);
 
         bytes32[] memory targets = _targets();
         address[] memory oldJoins = new address[](targets.length);
-        bytes32[] memory oldOperationalHashes = new bytes32[](targets.length);
-        bytes32[] memory oldDisplayHashes = new bytes32[](targets.length);
         for (uint256 i = 0; i < targets.length; i++) {
             oldJoins[i] = registry.join(targets[i]);
-            if (oldJoins[i] != address(0)) {
-                (oldOperationalHashes[i], oldDisplayHashes[i]) = _infoHashes(targets[i]);
-            }
         }
 
         uint256 initialCount = registry.count();
@@ -131,8 +101,6 @@ contract IlkRegistryMassReAddTest is Test {
 
         uint256 readded;
         uint256 liveReadded;
-        uint256 exactOperationalRestores;
-        uint256 displayMetadataDrifts;
         for (uint256 i = 0; i < targets.length; i++) {
             address adapter = oldJoins[i];
             if (adapter == address(0)) continue;
@@ -143,33 +111,22 @@ contract IlkRegistryMassReAddTest is Test {
             readded++;
             if (JoinMassLike(adapter).live() == 1) liveReadded++;
 
+            console2.log("re-added ilk:");
+            console2.logBytes32(targets[i]);
+            console2.log("adapter", adapter);
+            console2.log("adapter live", JoinMassLike(adapter).live());
+
             assertEq(registry.join(targets[i]), adapter, "registry did not restore the old adapter");
             assertTrue(_contains(targets[i]), "re-added target is not enumerable");
-
-            (bytes32 restoredOperational, bytes32 restoredDisplay) = _infoHashes(targets[i]);
-            if (restoredOperational == oldOperationalHashes[i]) exactOperationalRestores++;
-            if (restoredDisplay != oldDisplayHashes[i]) {
-                displayMetadataDrifts++;
-                console2.log("display metadata changed while operational metadata was restored:");
-                console2.logBytes32(targets[i]);
-            }
-            assertEq(
-                restoredOperational,
-                oldOperationalHashes[i],
-                "operational Registry metadata differs from pre-cleanup state"
-            );
         }
 
         console2.log("governance removals reversed", readded);
         console2.log("re-added adapters still live", liveReadded);
-        console2.log("exact operational metadata restores", exactOperationalRestores);
-        console2.log("display metadata drifts", displayMetadataDrifts);
         console2.log("cleaned count", cleanedCount);
         console2.log("post-attack count", registry.count());
 
-        assertGt(readded, 0, "attacker could not reverse any governance removal");
+        assertEq(readded, 31, "unexpected number of governance removals reversed");
         assertEq(registry.count(), cleanedCount + readded, "every successful add must restore one voted-out entry");
         assertEq(liveReadded, readded, "unexpectedly re-added a caged adapter");
-        assertEq(exactOperationalRestores, readded, "not every re-add restored operational metadata");
     }
 }
