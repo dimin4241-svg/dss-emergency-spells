@@ -53,7 +53,7 @@ contract IlkRegistryCurrentAtomicVatPropagationTest is IlkRegistryOmegaPokerImpa
             }
         }
 
-        console2.log("current Registry baseline", 35);
+        console2.log("current Registry baseline", uint256(35));
         console2.log("current one-call restored ilks", restored);
         console2.log("current final Registry count", registry.count());
         console2.log("current retired ilks recached", recached);
