@@ -1,128 +1,140 @@
-# Sky IlkRegistry terminal-offboarding bypass — validation summary
+# Sky IlkRegistry governance-retirement bypass — validation summary
 
 ## Executive conclusion
 
-The production IlkRegistry at `0x5a464C28D19848f44199D003BeF5ecc87d090F87` has no governance-controlled terminal state for an ilk. Permissionless `add(address)` therefore cannot distinguish:
+The production IlkRegistry at `0x5a464C28D19848f44199D003BeF5ecc87d090F87` cannot represent terminal collateral offboarding.
 
-1. a temporary metadata/module refresh that is expected to be followed by re-addition; and
-2. an authorized removal whose stated purpose is to finalize collateral offboarding.
+Governance used two coordinated controls in the August 7, 2025 spell:
 
-This is not only a documentation mismatch. A real governance cleanup can be executed and materially reversed before the same transaction returns, the same 31 removed legacy records remain restorable in the pinned current state, public users cannot remove the restored live records, and the poisoned Registry propagates into deployed `OmegaPoker` automation and `Vat.spot` updates.
+1. remove legacy oracle keys from Chainlog; and
+2. remove the associated offboarded ilks from IlkRegistry to finalize offboarding.
 
-No debt reopening, fund theft, keeper payout extraction, or block-gas denial of service is claimed.
+Permissionless `IlkRegistry.add(address)` defeats that combined result. It reconstructs removed records from legacy Join adapters and residual `MCD_SPOT` configuration without consulting Chainlog or any governance lifecycle marker.
 
-## Production root cause
-
-`add(address)` is permissionless and accepts an adapter when it:
-
-- points to the production Vat;
-- remains authorized in Vat;
-- reports an ilk absent from Registry;
-- has a non-zero Spotter oracle pointer; and
-- has a non-zero Dog clip or Cat flip pointer.
-
-The function does not check whether governance has terminally offboarded the ilk. It also does not check `Join.live()`.
-
-The official unit tests demonstrate a valid temporary `removeAuth -> add` refresh use case. The defect is that this temporary state is indistinguishable from a governance-authorized final removal.
-
-## Real governance baseline
-
-The August 7, 2025 executive proposal stated that selected offboarded ilks would be removed from IlkRegistry to finalize offboarding.
-
-The real spell at `0x26009aFf7fE39bF7611d66E0D38CAc43b3A93CD5` executed 42 `removeAuth` calls. On fork block `23,118,263`, exactly one block before the real cast:
+The strongest machine proof executes the complete chain in one unprivileged external call:
 
 ```text
-pre-cast Registry count: 72
-clean post-cast Registry count: 30
-removed records: 42
+real approved spell.cast()
+-> 31 permissionless Registry additions
+-> deployed OmegaPoker.refresh()
+-> deployed OmegaPoker.poke()
 ```
 
-## Atomic governance-result reversal
-
-Test: `src/IlkRegistryAtomicGovernanceReversal.t.sol`
-
-One unprivileged helper call performs, in one external transaction:
-
-1. public `spell.cast()` on the real approved spell; and
-2. permissionless `registry.add(adapter)` for the recorded legacy Join adapters.
-
-Machine result:
+Before the call returns:
 
 ```text
-[PASS] testOneUnprivilegedTransactionCastsSpellAndReversesCleanup()
-spell done true
-Join-backed cleanup targets 41
-restored atomically 31
-final registry count 61
-atomic call gas used 9,535,907
+spell.done()                              true
+selected Chainlog oracle keys absent         8
+Registry records restored                   31
+selected retired paths recached               7
+selected retired MCD_VAT.spot values changed  2
+final Registry count                         61
+call gas used                         13,401,327
+block gas limit                       44,868,168
+```
+
+The current deployment independently retains the same primitive. At block `25,694,337`, one public call with no historical spell restores 31 records, recaches 26 retired paths, and changes 15 `MCD_VAT.spot` values.
+
+No theft, borrowing, liquidation, debt reopening, active-auction loss, insolvency, or block-gas DoS is claimed.
+
+## Root cause
+
+`add(address)` accepts a missing standard collateral record when:
+
+- the Join points to production Vat;
+- the Join remains a Vat ward;
+- the ilk is absent from Registry;
+- residual Spotter `pip` is non-zero; and
+- a residual Dog clip or Cat flip exists.
+
+It stores no distinction between:
+
+```text
+temporary absence for technical refresh
+```
+
+and:
+
+```text
+terminal absence after governance offboarding
+```
+
+It also obtains `pip` from Spotter, so Chainlog retirement does not prevent reconstruction.
+
+## Proof matrix
+
+| Evidence | Environment | Result |
+|---|---|---|
+| Real approved spell cleanup | block `23,118,263` | clean Registry `72 -> 30`, 42 removals |
+| Atomic cleanup reversal | same historical fork | one public call restores 31; final count 61; `done=true` |
+| Atomic oracle-retirement bypass | same historical fork | Chainlog keys remain absent; 7 retired paths recached; 2 `MCD_VAT.spot` changes |
+| Current one-call propagation | block `25,694,337` | Registry `35 -> 66`; 26 recached; 15 Vat spot changes |
+| Exact current addability | same current fork | production `add()` accepts 31/31 adapters |
+| Persistence | same current fork | public removal blocked for 31/31 restored live entries |
+| Emergency completion reopening | same current fork | 25 OSM and 30 Clip obligations; both deployed spells return to `done=false` |
+| Staged emergency grief | same current fork | 25 and 30 repeated emergency response cycles |
+| Keeper differential | current fork | measurable gas increase; no new executable/paid job; no block-gas DoS |
+
+## Primary historical one-call proof
+
+Test:
+
+```text
+src/IlkRegistryAtomicOracleRetirementProof.t.sol
+```
+
+Result:
+
+```text
+[PASS] testOneExternalCallReactivatesRetiredOraclePathIntoVat()
+approved spell done true
+Chainlog keys still retired 8
+Registry ilks restored in same call 31
+retired ilks recached in same call 7
+retired Vat.spot values changed in same call 2
+final Registry count 61
+end-to-end call gas used 13,401,327
 block gas limit 44,868,168
 ```
 
-The transaction that executes the approved cleanup returns with `AAVE-A`, `USDC-A`, `ZRX-A`, and 28 other removed standard ilks already registered again. No mempool race, privileged key, malicious proposal, or miner cooperation is required.
+Workflow run: `31087775218`.
 
-Workflow run: `31082020451`.
-
-## Independent historical mass-restoration control
-
-Test: `src/IlkRegistryMassReAdd.t.sol`
+The two selected spot deltas were:
 
 ```text
-[PASS] testAttackerMassReAddsGovernanceRemovedIlks()
-governance removals reversed 31
-re-added adapters still live 31
-cleaned count 30
-post-attack count 61
+LINK-A
+72,000,000,000,000,000,000,000,000
+-> 145,650,900,000,000,000,000,000,000
+
+RENBTC-A
+860,343,300,000,000,000,000,000,000,000
+-> 2,397,198,400,000,000,000,000,000,000,000
 ```
 
-Workflow run: `31079596605`.
+The selected Chainlog keys remain absent. The bypass uses residual Spotter state as an alternate reconstruction source.
 
-## Pinned current-state exploitability
+## Current one-call proof
 
-Test: `src/IlkRegistryCurrentMassReAdd.t.sol`
-
-Pinned block: `25,694,337`.
+Test:
 
 ```text
-initial Registry count: 35
-successful legacy additions: 31 / 31
-post-attack Registry count: 66
-all 31 Join adapters live: yes
-all 31 Join adapters Vat-authorized: yes
-restored ilks with non-zero Art or line: 0
+src/IlkRegistryCurrentAtomicVatPropagation.t.sol
 ```
 
-The test asserts every adapter and target individually; it does not infer addability from partial state checks.
-
-### Residual-debt negative control
-
-`RWA012-A` and `RWA013-A` each have residual `Art == 1` and `line == 0` at the same pinned block. Both are absent from Registry, but both production `add()` calls revert with:
+Result:
 
 ```text
-IlkRegistry/invalid-auction-contract
+[PASS] testCurrentOneExternalCallRestoresLegacyPathsAndChangesVat()
+current Registry baseline 35
+current one-call restored ilks 31
+current final Registry count 66
+current retired ilks recached 26
+current retired Vat.spot values changed 15
+current one-call gas used 11,175,460
+block gas limit 60,000,000
 ```
 
-Therefore residual-debt RWA restoration is explicitly excluded from the impact claim.
-
-## Deployed downstream propagation: OmegaPoker and Vat
-
-Test: `src/IlkRegistryOmegaPokerImpact.t.sol`
-
-Deployed consumer: `OmegaPoker` at `0xDd538C362dF996727054AC8Fb67ef5394eC9b8b9`.
-
-`OmegaPoker.refresh()` consumes `registry.list()`, caches Registry ilks and OSMs, and `OmegaPoker.poke()` invokes the cached oracle/Spotter paths.
-
-Differential result at block `25,694,337`:
-
-```text
-Registry count:                 35 -> 66
-OmegaPoker ilk count:           12 -> 38
-OmegaPoker OSM count:            7 -> 32
-restored legacy ilks cached:          26
-refresh gas:                775,934 -> 2,329,157
-poke gas:                   600,720 -> 2,145,661
-legacy Vat.spot values changed:      15
-legacy Vat.spot values non-zero:     31
-```
+Workflow run: `31088226922`, final successful attempt.
 
 The 15 changed ilks were:
 
@@ -142,72 +154,122 @@ The 15 changed ilks were:
 - `UNIV2WBTCETH-A`
 - `USDT-A`
 
-This proves the result is not limited to a UI or an unused Registry array. Unprivileged Registry restoration changes the work set of deployed automation and causes state changes in core Vat metadata. Because these ilks retain `line == 0`, this is presented as material downstream propagation, not debt reopening.
+All positively restored ilks retain `Art == 0` and `line == 0`.
 
-Workflow runs: `31084333998` and `31084770021`.
+## Differential coordinated-retirement control
+
+Test:
+
+```text
+src/IlkRegistryChainlogRetirementBypass.t.sol
+```
+
+Clean state:
+
+```text
+selected Chainlog keys retired 8
+selected retired ilks cached by Omega 0
+Registry count 30
+```
+
+Attacked state:
+
+```text
+selected Chainlog keys still retired 8
+Registry records restored 31
+selected retired ilks cached 7
+selected retired Vat.spot changes 2
+Registry count 61
+```
+
+Workflow run: `31086708376`.
+
+## Deployed emergency-spell consequences
+
+Tests:
+
+```text
+src/IlkRegistryEmergencySpellImpact.t.sol
+src/IlkRegistryEmergencyReexecutionGrief.t.sol
+```
+
+Production contracts:
+
+```text
+MultiOsmStopSpell      0x3021dEdB0bC677F43A23Fcd1dE91A07e5195BaE8
+MultiClipBreakerSpell  0x828824dBC62Fba126C76E0Abe79AE28E5393C2cb
+```
+
+After a legitimate clean emergency execution reaches `done == true`, restoring the retired records causes:
+
+```text
+MultiOsmStopSpell:
+new pending obligations 25
+done after restoration  false
+re-execution gas         1,100,041
+
+MultiClipBreakerSpell:
+new pending obligations 30
+done after restoration  false
+re-execution gas         2,637,142
+```
+
+Staged one-at-a-time additions force:
+
+```text
+25 repeated MultiOsmStop executions
+30 repeated MultiClipBreaker executions
+```
+
+Measured total repeated response gas:
+
+```text
+OSM  12,279,717
+Clip 26,663,517
+```
+
+Workflow runs: `31086518004` and `31088034426`.
+
+These results are presented as confirmed incident-response grief and mutable completion. They are not presented as theft, permanent DoS, or block-gas DoS.
 
 ## Persistence and mitigation constraints
 
-Test: `src/IlkRegistryPersistence.t.sol`
+- all 31 restored Joins remain `live == 1`;
+- public `remove()` fails for all 31;
+- caging does not terminally block re-add because `add()` ignores `Join.live()`;
+- `Vat.deny(join)` blocks re-add but also causes `GemJoin.exit()` to revert;
+- the AAVE Join held approximately `77.033778046632910564 AAVE` at the pinned block.
 
-```text
-[PASS] testRestoredLiveIlksCannotBePubliclyRemoved()
-restored entries 31
-public removals blocked by live joins 31
-registry count after removal attempts 66
+A new governance action can repair the state. The original terminal action did not create a terminal state.
 
-[PASS] testCagingJoinDoesNotPermanentlyBlockReAdd()
+## Counterevidence and excluded claims
 
-[PASS] testDenyBlocksBothReAddAndCollateralExit()
-AAVE Join external collateral balance 77.033778046632910564 AAVE
-```
+The following were tested and must not be claimed:
 
-Consequences:
+| Theory | Result |
+|---|---|
+| Residual-debt RWA restoration | `RWA012-A` and `RWA013-A` revert with `invalid-auction-contract` |
+| Automatic debt-ceiling reopening | residual AutoLine config 0; LineMom enabled count 0 |
+| Legacy auction funds | active auction count 0; Clipper `Vat.gem` balance 0 |
+| Current swap-and-pop mutation | publicly removable current Registry entries 0 |
+| Historical `remove -> removeAuth` race | none of the 2025 spell targets was publicly removable pre-cast |
+| Malicious alternate Join/gem substitution | no qualifying second historical Join established |
+| Paid keeper work | no keeper became executable; no payout path |
+| Block-gas DoS | all measured primary and emergency executions fit the block limit |
+| Borrowing/liquidation/theft/insolvency | not demonstrated |
 
-- after restoration, public `remove()` cannot remove any of the 31 entries because the adapters remain live;
-- caging does not create a terminal state because a caged adapter can still be repeatedly `add -> remove -> add`;
-- `Vat.deny(join)` blocks Registry addition, but the same authorization is required by `GemJoin.exit()`;
-- the AAVE adapter still held collateral, so denying it is not a harmless universal cleanup action.
+Negative-control workflow runs:
 
-Governance can still repair the state through a new privileged action. The finding is that the existing removal did not create the terminal state its stated purpose required.
-
-Workflow run: `31081065745`.
-
-## Keeper impact measured and bounded
-
-Test: `src/IlkRegistryKeeperGas.t.sol`
-
-- all nine active dss-cron jobs retained the same call-success and `canWork == false` result;
-- no paid/executable work was created;
-- maximum individual gas increase was approximately 1.50 million gas;
-- `Sequencer.getNextJobs()` increased from approximately 5.88 million to 8.56 million gas;
-- measured block gas limit was approximately 60 million.
-
-This is bounded gas grief evidence only. Keeper-payment extraction and block-gas DoS are not claimed.
-
-Workflow run: `31080500141`.
-
-## Architectural evidence and negative historical control
-
-A May 2022 governance spell iterated over `IlkRegistry.list()` to authorize the replacement End contract on each liquidation module and whitelist it on each oracle. This demonstrates that Registry enumeration is trusted governance configuration, not merely display metadata.
-
-A fork scan immediately before that spell's real cast found zero absent historical Join adapters accepted by production `add()`. Therefore no exploit is claimed against that particular spell.
-
-## Explicitly falsified or excluded theories
-
-The report must not claim:
-
-1. a `remove -> removeAuth` front-run against the August 2025 cleanup spell — none of its 42 targets was publicly removable before cast;
-2. a naturally caged addable adapter in current production — the confirmed 31 adapters are live;
-3. a second historical Join that substitutes a different gem for the same ilk — none was found;
-4. residual-debt RWA restoration — the two residual-Art controls revert;
-5. direct debt reopening, theft, protocol insolvency, keeper payout extraction, or block-gas DoS.
+- current public-removal scan: `31087074419`
+- residual automation scan: `31087315028`
+- legacy auction scan: `31087623400`
+- keeper bounded impact: `31080500141`
 
 ## Recommended remediation
 
-A `Join.live()` check alone is insufficient because the 31 affected adapters remain live to preserve collateral exit.
+A `Join.live()` check alone is insufficient because the currently affected adapters are live to preserve exit.
 
-The Registry needs a governance-controlled terminal tombstone, for example:
+Add a governance-controlled terminal lifecycle state:
 
 ```solidity
 mapping(bytes32 => bool) public blocked;
@@ -224,13 +286,14 @@ function unblockIlk(bytes32 ilk) external auth {
 function add(address adapter) external {
     bytes32 ilk = JoinLike(adapter).ilk();
     require(!blocked[ilk], "IlkRegistry/ilk-blocked");
-    // existing validation
+    // existing technical validation
 }
 ```
 
-Terminal offboarding spells should call `blockIlk`, while temporary refresh flows may continue using `removeAuth -> add`.
+Terminal offboarding should set the block in the same spell that retires Chainlog keys and removes the Registry record.
 
-Separately:
+Also:
 
-- enforce the documented active-adapter condition where compatible with intended lifecycle behavior; and
-- validate key existence plus array/mapping consistency inside `_remove` before swap-and-pop.
+- harden `_remove` with existence and array/mapping consistency checks;
+- define explicit caged-adapter behavior; and
+- make list-consuming emergency logic use a governance-stable or lifecycle-aware target set.
