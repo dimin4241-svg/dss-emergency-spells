@@ -15,7 +15,12 @@ interface SingleVatLike {
 }
 
 interface SingleSpotterLike {
+    function ilks(bytes32 ilk) external view returns (address pip, uint256 mat);
     function poke(bytes32 ilk) external;
+}
+
+interface SingleOracleLike {
+    function poke() external;
 }
 
 interface SingleOmegaLike {
@@ -37,13 +42,16 @@ contract IlkRegistryDirectSpotterSingleControlTest is Test {
         (,, value,,) = SingleVatLike(vat).ilks(LINK_A);
     }
 
-    function testDirectPublicSpotterPokeMatchesRegistryOmegaLinkSpotResult() public {
+    function testDirectPublicOracleAndSpotterPathMatchesRegistryOmegaResult() public {
         uint256 directFork = vm.createFork("mainnet", SNAPSHOT_BLOCK);
         uint256 registryFork = vm.createFork("mainnet", SNAPSHOT_BLOCK);
 
         vm.selectFork(directFork);
         uint256 baseline = _spot();
         assertEq(SingleRegistryLike(REGISTRY).join(LINK_A), address(0), "LINK-A unexpectedly registered");
+        (address legacyOracle,) = SingleSpotterLike(MCD_SPOT).ilks(LINK_A);
+        assertTrue(legacyOracle != address(0), "LINK-A residual oracle missing");
+        SingleOracleLike(legacyOracle).poke();
         SingleSpotterLike(MCD_SPOT).poke(LINK_A);
         uint256 directAfter = _spot();
 
@@ -56,11 +64,11 @@ contract IlkRegistryDirectSpotterSingleControlTest is Test {
         uint256 registryAfter = _spot();
 
         console2.log("LINK-A baseline spot", baseline);
-        console2.log("LINK-A direct public Spotter result", directAfter);
+        console2.log("LINK-A direct oracle plus Spotter result", directAfter);
         console2.log("LINK-A Registry plus Omega result", registryAfter);
         console2.log("final values equal", directAfter == registryAfter);
 
-        assertTrue(directAfter != baseline, "direct public Spotter poke produced no change");
+        assertTrue(directAfter != baseline, "direct public oracle and Spotter path produced no change");
         assertEq(registryAfter, directAfter, "Registry/Omega produced a distinct Vat.spot result");
     }
 }
