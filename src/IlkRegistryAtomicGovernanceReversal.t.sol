@@ -7,7 +7,6 @@ import {console2} from "forge-std/console2.sol";
 interface AtomicRegistryLike {
     function count() external view returns (uint256);
     function join(bytes32) external view returns (address);
-    function add(address) external;
 }
 
 interface AtomicSpellLike {
@@ -87,12 +86,17 @@ contract IlkRegistryAtomicGovernanceReversalTest is Test {
         vm.createSelectFork("mainnet", PRE_CAST_BLOCK);
         bytes32[] memory targets = _targets();
         address[] memory adapters = new address[](targets.length);
+        uint256 standardJoinTargets;
         for (uint256 i = 0; i < targets.length; i++) {
+            // Custom/RWA records such as LSE-MKR-A may intentionally have join == 0.
+            // Standard collateral records expose their legacy Join and are the subset
+            // that permissionless add(address) can reconstruct after the spell.
             adapters[i] = registry.join(targets[i]);
-            assertTrue(adapters[i] != address(0), "official cleanup target missing before cast");
+            if (adapters[i] != address(0)) standardJoinTargets++;
         }
 
         assertEq(registry.count(), 72, "unexpected pre-cast count");
+        assertEq(standardJoinTargets, 31, "unexpected number of standard Join targets");
         assertFalse(spell.done(), "spell already cast at the selected block");
 
         AtomicCleanupReversal attacker = new AtomicCleanupReversal();
@@ -101,6 +105,7 @@ contract IlkRegistryAtomicGovernanceReversalTest is Test {
         uint256 gasUsed = beforeGas - gasleft();
 
         console2.log("spell done", spell.done());
+        console2.log("standard Join cleanup targets", standardJoinTargets);
         console2.log("restored atomically", restored);
         console2.log("final registry count", registry.count());
         console2.log("atomic call gas used", gasUsed);
@@ -111,8 +116,6 @@ contract IlkRegistryAtomicGovernanceReversalTest is Test {
         assertEq(registry.count(), 61, "transaction did not end with cleanup reversed");
         assertLt(gasUsed, block.gaslimit, "atomic reversal cannot fit in one block");
 
-        // Representative voted-out operational entries are already present again
-        // when the transaction returns to the external caller.
         assertTrue(registry.join("AAVE-A") != address(0), "AAVE-A cleanup survived the transaction");
         assertTrue(registry.join("USDC-A") != address(0), "USDC-A cleanup survived the transaction");
         assertTrue(registry.join("ZRX-A") != address(0), "ZRX-A cleanup survived the transaction");
