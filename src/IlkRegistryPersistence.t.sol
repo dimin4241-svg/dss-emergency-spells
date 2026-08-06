@@ -34,7 +34,7 @@ interface BalanceLike {
 
 contract IlkRegistryPersistenceTest is Test {
     address internal constant REGISTRY = 0x5a464C28D19848f44199D003BeF5ecc87d090F87;
-    address internal constant PAUSE_PROXY = 0xBE8E3e3618f7474F8cB1d074A26affef007E98FB;
+    address internal constant PAUSE_PROXY = 0xBE8E3e3618f7474F8cB1d074A26afFef007E98FB;
     bytes32 internal constant AAVE_A = "AAVE-A";
     address internal constant AAVE_JOIN = 0x24e459F61cEAa7b1cE70Dbaea938940A7c5aD46e;
 
@@ -153,11 +153,9 @@ contract IlkRegistryPersistenceTest is Test {
         join.cage();
         assertEq(join.live(), 0, "governance cage failed");
 
-        // Missing Join.live() check: an arbitrary caller still registers the caged adapter.
         registry.add(AAVE_JOIN);
         assertEq(registry.join(AAVE_A), AAVE_JOIN, "caged adapter was not registered");
 
-        // Anyone can remove it now, but anyone can immediately add it again.
         registry.remove(AAVE_A);
         assertEq(registry.join(AAVE_A), address(0), "public remove failed after cage");
         registry.add(AAVE_JOIN);
@@ -177,7 +175,6 @@ contract IlkRegistryPersistenceTest is Test {
         assertEq(vat.wards(AAVE_JOIN), 1, "AAVE Join is not a Vat ward before deny");
         assertEq(vat.wards(PAUSE_PROXY), 1, "Pause Proxy cannot deny on Vat");
 
-        // A zero-wad exit still traverses Vat.slip and proves the authorization path.
         join.exit(address(this), 0);
 
         vm.prank(PAUSE_PROXY);
