@@ -87,7 +87,13 @@ contract IlkRegistryOmegaPokerImpactTest is IlkRegistryCurrentMassReAddTest {
         CurrentVatLike vat = CurrentVatLike(registry.vat());
         for (uint256 i = 0; i < targets.length; i++) {
             (,, uint256 spotAfter,,) = vat.ilks(targets[i]);
-            if (spotAfter != spotsBefore[i]) changed++;
+            if (spotAfter != spotsBefore[i]) {
+                changed++;
+                console2.log("Omega changed legacy ilk:");
+                console2.logBytes32(targets[i]);
+                console2.log("spot before", spotsBefore[i]);
+                console2.log("spot after", spotAfter);
+            }
             if (spotAfter != 0) nonzero++;
         }
     }
